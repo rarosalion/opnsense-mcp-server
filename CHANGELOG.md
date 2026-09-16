@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-09-16
+
+### Added
+
+- `opn_delete_dns_alias` deletes an Unbound DNS host alias by UUID. Aliases (a
+  hostname nested under a parent host override, shown as `_children` entries
+  in `opn_list_dns_overrides`) are a distinct OPNsense object type from host
+  overrides, with their own `delHostAlias` endpoint — `opn_delete_dns_override`
+  only calls `delHostOverride`, which returns a bare "not found" for an
+  alias's UUID rather than deleting it.
+
+### Fixed
+
+- Declared `httpx` as a direct dependency instead of relying on it arriving
+  transitively via `fastmcp`. `api_client.py` does `import httpx` directly,
+  but current `fastmcp` (4.x) resolves to `httpx2` — a distinct package, not
+  a version of `httpx` — so a fresh install (`pip install -e .` or a Docker
+  build) got `ModuleNotFoundError: No module named 'httpx'` at startup.
+
 ## [0.4.1] - 2026-08-19
 
 ### Added

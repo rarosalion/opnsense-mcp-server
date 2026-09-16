@@ -2,7 +2,7 @@
 
 A secure [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for managing OPNsense firewalls through AI assistants like [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Cursor, and other MCP-compatible tools.
 
-**81 tools** across 10 domains: system, firewall, network, DNS, DHCP, VPN, HAProxy, services, diagnostics, and security.
+**82 tools** across 10 domains: system, firewall, network, DNS, DHCP, VPN, HAProxy, services, diagnostics, and security.
 
 ## Requirements
 
@@ -190,7 +190,7 @@ Add to your Cursor MCP settings (Settings > MCP):
 
 > **Note:** Savepoint protection only exists on OPNsense < 26.7. On 26.7+ these tools apply changes immediately and permanently — see [Write Operations and Savepoints](#write-operations-and-savepoints).
 
-### DNS (13 tools)
+### DNS (14 tools)
 
 | Tool | Description | Writes |
 | --- | --- | --- |
@@ -207,6 +207,7 @@ Add to your Cursor MCP settings (Settings > MCP):
 | `opn_update_dnsbl` | Reload DNSBL blocklist files and restart Unbound (no config change, recovery tool) | Yes |
 | `opn_update_dns_override` | Update an Unbound DNS host override and apply immediately. Params: `uuid`, `hostname`, `domain`, `server`, `description`, `enabled` | Yes |
 | `opn_delete_dns_override` | Delete an Unbound DNS host override and apply immediately. Params: `uuid` | Yes |
+| `opn_delete_dns_alias` | Delete an Unbound DNS host alias (a child of a host override, distinct from it) and apply immediately. Params: `uuid` | Yes |
 
 ### DHCP (8 tools)
 

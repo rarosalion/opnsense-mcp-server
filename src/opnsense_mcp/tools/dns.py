@@ -238,6 +238,38 @@ async def opn_delete_dns_override(
     }
 
 
+@mcp.tool()
+async def opn_delete_dns_alias(
+    ctx: Context,
+    uuid: str,
+) -> dict[str, Any]:
+    """Delete an Unbound DNS host alias by UUID and apply immediately.
+
+    A host alias is a secondary hostname attached to a parent host override
+    (shown as an entry in that override's "aliases" list / the "_children" of
+    opn_list_dns_overrides) — a distinct object type from the host override
+    itself, with its own UUID and delete endpoint. Use this for an alias
+    entry; opn_delete_dns_override only deletes top-level host overrides and
+    returns "not found" for an alias's UUID without deleting it.
+
+    The deletion is applied immediately (Unbound is reconfigured automatically).
+    DNS changes cannot be auto-reverted — verify the UUID before calling.
+    Use opn_list_dns_overrides first to find the alias UUID.
+    Returns: dict with 'result' (str), 'uuid' (str), and 'applied' status.
+    """
+    api = get_api(ctx)
+    api.require_writes()
+    result = await api.post("unbound.del_host_alias", path_suffix=uuid)
+    reconfigure = await api.post("unbound.service.reconfigure")
+    get_config_cache(ctx).invalidate()
+
+    return {
+        "result": result.get("result", ""),
+        "uuid": uuid,
+        "applied": reconfigure.get("status", "unknown"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # DNSBL (DNS Blocklist) tools
 # ---------------------------------------------------------------------------

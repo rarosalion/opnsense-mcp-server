@@ -11,6 +11,7 @@ from opnsense_mcp.tools.dns import (
     _extract_dnsbl_values,
     opn_add_dns_override,
     opn_add_dnsbl_allowlist,
+    opn_delete_dns_alias,
     opn_delete_dns_override,
     opn_dns_stats,
     opn_get_dnsbl,
@@ -663,4 +664,38 @@ class TestOpnDeleteDnsOverride:
         cache = mock_ctx_writes.lifespan_context["config_cache"]
         cache._stale = False
         await opn_delete_dns_override(mock_ctx_writes, uuid="dns-uuid-1")
+        assert cache._stale
+
+
+class TestOpnDeleteDnsAlias:
+    """Tests for opn_delete_dns_alias."""
+
+    async def test_deletes_and_reconfigures(self, mock_api_writes, mock_ctx_writes):
+        mock_api_writes.post = AsyncMock(
+            side_effect=[{"result": "deleted"}, {"status": "ok"}],
+        )
+        result = await opn_delete_dns_alias(mock_ctx_writes, uuid="alias-to-delete")
+        mock_api_writes.post.assert_any_call("unbound.del_host_alias", path_suffix="alias-to-delete")
+        assert result["result"] == "deleted"
+        assert result["uuid"] == "alias-to-delete"
+        assert result["applied"] == "ok"
+
+    async def test_requires_writes_enabled(self, mock_ctx):
+        with pytest.raises(WriteDisabledError):
+            await opn_delete_dns_alias(mock_ctx, uuid="alias-uuid-1")
+
+    async def test_reconfigures_unbound(self, mock_api_writes, mock_ctx_writes):
+        mock_api_writes.post = AsyncMock(
+            side_effect=[{"result": "deleted"}, {"status": "ok"}],
+        )
+        await opn_delete_dns_alias(mock_ctx_writes, uuid="alias-uuid-1")
+        assert mock_api_writes.post.call_args_list[1][0][0] == "unbound.service.reconfigure"
+
+    async def test_invalidates_config_cache(self, mock_api_writes, mock_ctx_writes):
+        mock_api_writes.post = AsyncMock(
+            side_effect=[{"result": "deleted"}, {"status": "ok"}],
+        )
+        cache = mock_ctx_writes.lifespan_context["config_cache"]
+        cache._stale = False
+        await opn_delete_dns_alias(mock_ctx_writes, uuid="alias-uuid-1")
         assert cache._stale

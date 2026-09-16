@@ -241,6 +241,14 @@ ENDPOINT_REGISTRY: dict[str, tuple[str, str]] = {
         "unbound/settings/delHostOverride",
         "unbound/settings/del_host_override",
     ),
+    # Unbound DNS host alias write — a distinct object type from host overrides
+    # (an alias is a child record nested under a parent host override), with its
+    # own delete endpoint. del_host_override returns a bare "not found" for an
+    # alias UUID rather than deleting it.
+    "unbound.del_host_alias": (
+        "unbound/settings/delHostAlias",
+        "unbound/settings/del_host_alias",
+    ),
     # Unbound DNSBL (DNS Blocklist)
     "unbound.search_dnsbl": (
         "unbound/settings/searchDnsbl",
