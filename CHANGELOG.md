@@ -23,6 +23,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   a version of `httpx` — so a fresh install (`pip install -e .` or a Docker
   build) got `ModuleNotFoundError: No module named 'httpx'` at startup.
 
+### Changed
+
+- This fork publishes its Docker image to `ghcr.io/rarosalion/opnsense-mcp-server`
+  (via `publish-ghcr.yml`, using the repo's own `GITHUB_TOKEN` — no separate
+  registry account needed) instead of upstream's Docker Hub workflow.
+
 ## [0.4.1] - 2026-08-19
 
 ### Added
