@@ -9,6 +9,7 @@ import pytest
 from opnsense_mcp.api_client import OPNsenseAPIError, WriteDisabledError
 from opnsense_mcp.tools.dns import (
     _extract_dnsbl_values,
+    opn_add_dns_alias,
     opn_add_dns_override,
     opn_add_dnsbl_allowlist,
     opn_delete_dns_alias,
@@ -221,6 +222,96 @@ class TestOpnAddDnsOverride:
             hostname="test",
             domain="local.lan",
             server="192.168.1.1",
+        )
+        cache = mock_ctx_writes.lifespan_context["config_cache"]
+        assert cache.is_stale
+
+
+class TestOpnAddDnsAlias:
+    """Tests for opn_add_dns_alias."""
+
+    async def test_creates_alias_and_reconfigures(self, mock_api_writes, mock_ctx_writes):
+        mock_api_writes.post = AsyncMock(
+            side_effect=[
+                {"result": "saved", "uuid": "alias-uuid-1"},
+                {"status": "ok"},
+            ]
+        )
+        result = await opn_add_dns_alias(
+            mock_ctx_writes,
+            host_uuid="parent-uuid-1",
+            hostname="myapp",
+            domain="home.lan",
+        )
+        assert mock_api_writes.post.call_count == 2
+        assert result["uuid"] == "alias-uuid-1"
+        assert result["hostname"] == "myapp.home.lan"
+        assert result["host_uuid"] == "parent-uuid-1"
+        assert result["applied"] == "ok"
+
+    async def test_passes_correct_payload(self, mock_api_writes, mock_ctx_writes):
+        mock_api_writes.post = AsyncMock(
+            side_effect=[
+                {"result": "saved", "uuid": "alias-uuid-2"},
+                {"status": "ok"},
+            ]
+        )
+        await opn_add_dns_alias(
+            mock_ctx_writes,
+            host_uuid="parent-uuid-2",
+            hostname="web",
+            domain="example.com",
+            description="Web app",
+        )
+        call_args = mock_api_writes.post.call_args_list[0]
+        assert call_args[0][0] == "unbound.add_host_alias"
+        alias = call_args[0][1]["alias"]
+        assert alias["host"] == "parent-uuid-2"
+        assert alias["hostname"] == "web"
+        assert alias["domain"] == "example.com"
+        assert alias["description"] == "Web app"
+        assert alias["enabled"] == "1"
+        assert "server" not in alias
+
+    async def test_requires_writes_enabled(self, mock_ctx):
+        with pytest.raises(WriteDisabledError):
+            await opn_add_dns_alias(
+                mock_ctx,
+                host_uuid="parent-uuid-1",
+                hostname="test",
+                domain="local.lan",
+            )
+
+    async def test_validates_hostname(self, mock_ctx_writes):
+        result = await opn_add_dns_alias(
+            mock_ctx_writes,
+            host_uuid="parent-uuid-1",
+            hostname="invalid host!",
+            domain="local.lan",
+        )
+        assert "error" in result
+
+    async def test_validates_domain(self, mock_ctx_writes):
+        result = await opn_add_dns_alias(
+            mock_ctx_writes,
+            host_uuid="parent-uuid-1",
+            hostname="test",
+            domain="",
+        )
+        assert "error" in result
+
+    async def test_invalidates_cache(self, mock_api_writes, mock_ctx_writes):
+        mock_api_writes.post = AsyncMock(
+            side_effect=[
+                {"result": "saved", "uuid": "alias-cache"},
+                {"status": "ok"},
+            ]
+        )
+        await opn_add_dns_alias(
+            mock_ctx_writes,
+            host_uuid="parent-uuid-1",
+            hostname="test",
+            domain="local.lan",
         )
         cache = mock_ctx_writes.lifespan_context["config_cache"]
         assert cache.is_stale

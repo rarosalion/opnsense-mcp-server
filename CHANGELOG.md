@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.3] - 2026-09-17
+
+### Added
+
+- `opn_add_dns_alias` creates an Unbound DNS host alias under an existing host
+  override. Confirmed against a live `getHostAlias` response that an alias has
+  no IP/server field of its own at all — only a reference to the parent host
+  override's UUID — so it resolves through the parent and automatically
+  follows any future change to the parent's IP. `opn_add_dns_override` cannot
+  create this: it only makes an independent record that happens to share the
+  same IP today, which a later IP change to the "parent" would silently leave
+  stale.
+
 ## [0.4.2] - 2026-09-16
 
 ### Added

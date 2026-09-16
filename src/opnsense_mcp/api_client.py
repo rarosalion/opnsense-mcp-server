@@ -243,8 +243,18 @@ ENDPOINT_REGISTRY: dict[str, tuple[str, str]] = {
     ),
     # Unbound DNS host alias write — a distinct object type from host overrides
     # (an alias is a child record nested under a parent host override), with its
-    # own delete endpoint. del_host_override returns a bare "not found" for an
-    # alias UUID rather than deleting it.
+    # own add/delete endpoints. del_host_override returns a bare "not found" for
+    # an alias UUID rather than deleting it. An alias has no server/IP field of
+    # its own at all (confirmed against a live getHostAlias response) — it only
+    # stores a reference to the parent host override's UUID and resolves through
+    # it, so retargeting the parent's IP and reconfiguring Unbound updates every
+    # alias automatically. A plain add_host_override with a matching IP looks
+    # identical in a quick check but is a second independent record that a
+    # future IP change to the "parent" would silently leave stale.
+    "unbound.add_host_alias": (
+        "unbound/settings/addHostAlias",
+        "unbound/settings/add_host_alias",
+    ),
     "unbound.del_host_alias": (
         "unbound/settings/delHostAlias",
         "unbound/settings/del_host_alias",

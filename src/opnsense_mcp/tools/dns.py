@@ -151,6 +151,70 @@ async def opn_add_dns_override(
 
 
 @mcp.tool()
+async def opn_add_dns_alias(
+    ctx: Context,
+    host_uuid: str,
+    hostname: str,
+    domain: str,
+    description: str = "",
+) -> dict[str, Any]:
+    """Add an Unbound DNS host alias under an existing host override and apply immediately.
+
+    A host alias has no IP/server of its own — it only references a parent host
+    override's UUID and resolves through it, so retargeting the parent's IP and
+    reconfiguring Unbound updates every alias automatically. Use this instead of
+    opn_add_dns_override whenever a hostname should always resolve to the same
+    place as an existing record (e.g. several app hostnames all fronted by one
+    ingress/VIP host) - a second opn_add_dns_override with a matching IP looks
+    identical today but is an independent record a future IP change to the
+    "parent" would silently leave stale.
+
+    Changes are applied immediately (Unbound is reconfigured automatically).
+    DNS overrides cannot be auto-reverted — verify settings before calling.
+    Use opn_list_dns_overrides to find the parent host override's UUID.
+
+    Parameters:
+    - host_uuid: UUID of the parent host override (from opn_list_dns_overrides)
+    - hostname: the hostname part (e.g. 'myserver')
+    - domain: the domain part (e.g. 'local.lan')
+    - description: optional description
+
+    Returns: dict with 'result', 'uuid', 'hostname', 'host_uuid', and 'applied' status.
+    """
+    if not hostname or not _HOSTNAME_RE.match(hostname):
+        return {"error": f"Invalid hostname '{hostname}'. Must be alphanumeric with hyphens."}
+    if not domain or not _DOMAIN_RE.match(domain):
+        return {"error": f"Invalid domain '{domain}'. Must be a valid domain name."}
+
+    api = get_api(ctx)
+    api.require_writes()
+
+    result = await api.post(
+        "unbound.add_host_alias",
+        {
+            "alias": {
+                "host": host_uuid,
+                "hostname": hostname,
+                "domain": domain,
+                "description": description,
+                "enabled": "1",
+            },
+        },
+    )
+
+    reconfigure = await api.post("unbound.service.reconfigure")
+    get_config_cache(ctx).invalidate()
+
+    return {
+        "result": result.get("result", ""),
+        "uuid": result.get("uuid", ""),
+        "hostname": f"{hostname}.{domain}",
+        "host_uuid": host_uuid,
+        "applied": reconfigure.get("status", "unknown"),
+    }
+
+
+@mcp.tool()
 async def opn_update_dns_override(
     ctx: Context,
     uuid: str,

@@ -2,7 +2,7 @@
 
 A secure [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for managing OPNsense firewalls through AI assistants like [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Cursor, and other MCP-compatible tools.
 
-**82 tools** across 10 domains: system, firewall, network, DNS, DHCP, VPN, HAProxy, services, diagnostics, and security.
+**83 tools** across 10 domains: system, firewall, network, DNS, DHCP, VPN, HAProxy, services, diagnostics, and security.
 
 ## Requirements
 
@@ -190,7 +190,7 @@ Add to your Cursor MCP settings (Settings > MCP):
 
 > **Note:** Savepoint protection only exists on OPNsense < 26.7. On 26.7+ these tools apply changes immediately and permanently — see [Write Operations and Savepoints](#write-operations-and-savepoints).
 
-### DNS (14 tools)
+### DNS (15 tools)
 
 | Tool | Description | Writes |
 | --- | --- | --- |
@@ -199,6 +199,7 @@ Add to your Cursor MCP settings (Settings > MCP):
 | `opn_dns_stats` | Unbound resolver statistics (queries, cache hits, uptime) | No |
 | `opn_reconfigure_unbound` | Apply pending DNS resolver configuration changes | Yes |
 | `opn_add_dns_override` | Add an Unbound DNS host override (A/AAAA record) and apply immediately. Params: `hostname`, `domain`, `server`, `description` | Yes |
+| `opn_add_dns_alias` | Add an Unbound DNS host alias under an existing host override (no IP of its own - resolves through the parent) and apply immediately. Params: `host_uuid`, `hostname`, `domain`, `description` | Yes |
 | `opn_list_dnsbl` | List DNSBL blocklist configurations with providers and status. Params: `search`, `limit` | No |
 | `opn_get_dnsbl` | Get full DNSBL configuration by UUID (providers, allowlists, settings). Params: `uuid` | No |
 | `opn_set_dnsbl` | Update DNSBL settings (read-modify-write). Params: `uuid`, `enabled`, `providers`, `allowlists`, `blocklists`, `wildcards`, etc. | Yes |
