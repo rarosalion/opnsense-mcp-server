@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.4] - 2026-09-17
+
+### Changed
+
+- Documented, in the docstrings of all five DNS write tools
+  (`opn_add_dns_override`, `opn_add_dns_alias`, `opn_update_dns_override`,
+  `opn_delete_dns_override`, `opn_delete_dns_alias`), that each call
+  reconfigures Unbound immediately and that a bulk job should pace calls in
+  small batches rather than firing dozens back-to-back. Surfaced by actually
+  doing a ~100-record bulk migration in one continuous burst, which visibly
+  stressed Unbound. Deliberately documentation-only rather than adding a
+  `reconfigure: bool` opt-out param — an easy-to-forget flag that silently
+  leaves changes staged but unapplied felt like trading one footgun for
+  another; the tool description is what every caller already reads before
+  deciding how to use it.
+
 ## [0.4.3] - 2026-09-17
 
 ### Added

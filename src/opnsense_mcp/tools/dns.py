@@ -107,6 +107,11 @@ async def opn_add_dns_override(
     DNS overrides cannot be auto-reverted — verify settings before calling.
     Use opn_list_dns_overrides to check existing overrides first.
 
+    Note: this reconfigures Unbound on every call. For a bulk job (many
+    records in one pass), pace calls in small batches with brief pauses
+    rather than firing dozens back-to-back — repeated reconfigures in quick
+    succession can visibly stress Unbound.
+
     Parameters:
     - hostname: the hostname part (e.g. 'myserver')
     - domain: the domain part (e.g. 'local.lan')
@@ -173,6 +178,12 @@ async def opn_add_dns_alias(
     DNS overrides cannot be auto-reverted — verify settings before calling.
     Use opn_list_dns_overrides to find the parent host override's UUID.
 
+    Note: this reconfigures Unbound on every call. For a bulk job (many
+    aliases in one pass — e.g. migrating several hostnames onto one parent),
+    pace calls in small batches with brief pauses rather than firing dozens
+    back-to-back — repeated reconfigures in quick succession can visibly
+    stress Unbound.
+
     Parameters:
     - host_uuid: UUID of the parent host override (from opn_list_dns_overrides)
     - hostname: the hostname part (e.g. 'myserver')
@@ -234,6 +245,11 @@ async def opn_update_dns_override(
     DNS overrides cannot be auto-reverted — verify settings before calling.
     Use opn_list_dns_overrides first to find the UUID.
 
+    Note: this reconfigures Unbound on every call. For a bulk job (many
+    records in one pass), pace calls in small batches with brief pauses
+    rather than firing dozens back-to-back — repeated reconfigures in quick
+    succession can visibly stress Unbound.
+
     Parameters:
     - uuid: override UUID (from opn_list_dns_overrides)
     - hostname: new hostname part (e.g. 'myserver')
@@ -287,6 +303,12 @@ async def opn_delete_dns_override(
     The deletion is applied immediately (Unbound is reconfigured automatically).
     DNS changes cannot be auto-reverted — verify the UUID before calling.
     Use opn_list_dns_overrides first to find the UUID.
+
+    Note: this reconfigures Unbound on every call. For a bulk job (many
+    records in one pass), pace calls in small batches with brief pauses
+    rather than firing dozens back-to-back — repeated reconfigures in quick
+    succession can visibly stress Unbound.
+
     Returns: dict with 'result' (str), 'uuid' (str), and 'applied' status.
     """
     api = get_api(ctx)
@@ -319,6 +341,13 @@ async def opn_delete_dns_alias(
     The deletion is applied immediately (Unbound is reconfigured automatically).
     DNS changes cannot be auto-reverted — verify the UUID before calling.
     Use opn_list_dns_overrides first to find the alias UUID.
+
+    Note: this reconfigures Unbound on every call. For a bulk job (many
+    aliases in one pass — e.g. migrating a hostname off several old records),
+    pace calls in small batches with brief pauses rather than firing dozens
+    back-to-back — repeated reconfigures in quick succession can visibly
+    stress Unbound.
+
     Returns: dict with 'result' (str), 'uuid' (str), and 'applied' status.
     """
     api = get_api(ctx)
