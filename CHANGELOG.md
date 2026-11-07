@@ -4,6 +4,57 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.5] - 2026-11-07
+
+Merges upstream v0.4.2 (security and bug fixes) into this fork.
+
+### Security
+
+- **Path traversal past the endpoint blocklist:** caller-supplied UUIDs were appended
+  to the request path unchecked, so a UUID such as `../../../core/system/halt` passed
+  the blocklist and reached `/api/core/system/halt`. With writes enabled, one
+  prompt-injected tool call could halt, reboot or upgrade the firewall. A path suffix
+  must now be a single plain segment (`[A-Za-z0-9_.,-]`, not `.`/`..`), and the
+  blocklist collapses dot segments before matching. Reported by @PaulWaldo in #6.
+- **`include_sensitive` needs operator opt-in:** `opn_download_config` and
+  `opn_get_config_section` refuse `include_sensitive=true` (`error_type:
+  sensitive_disabled`) unless `OPNSENSE_ALLOW_SENSITIVE=true` is set, so the model can
+  no longer request unredacted secrets on its own. **Behaviour change** for setups that
+  relied on the parameter alone. Reported by @PaulWaldo in #6.
+- Hostname validation for the diagnostics tools also rejects tab characters (#6).
+- `core/firmware/reboot` is blocklisted too: it reboots the firewall like
+  `core/system/reboot`, which was the only reboot endpoint on the list.
+- **Config redaction failed open:** `opn_download_config` returned the original,
+  unredacted config.xml whenever it could not parse it, while still reporting
+  `stripped: true`. It now refuses with `error_type: unparseable_config`.
+- **Secret tags leaked through redaction:** the 9-name exact list now sits behind the
+  pattern matcher from the v0.5 line (secret substrings, `*key` suffix except `pub*`,
+  allowlist for `passwordauth`/`nopasswd`), extended for tags it still missed: cert/CA
+  private keys (`prv`), user `authorizedkeys` and `otp_seed`, `ldap_bindpw`, WPA
+  `passphrase`, WEP `keys`, legacy OpenVPN `tls` and `auth_pass`, WireGuard/Zabbix PSKs,
+  the SNMP `community`, RFC 2136 `keydata`, the PPP `simpin` and several ACME/Caddy
+  credentials. Applies to `opn_download_config` and `opn_get_config_section`. Non-secret
+  side effects: BGP `community` values and the `system/ssh/keys` algorithm list are
+  blanked too.
+- `opn_download_config` blanks a sensitive element whole (children and attributes), as
+  `opn_get_config_section` already did, instead of replacing only its text.
+
+### Fixed
+
+- `fastmcp` is bounded to `<4`: fastmcp 4 replaced `httpx` with `httpx2`, so fresh
+  installs failed to import.
+- **Bare-array responses broke read tools:** `opn_arp_table`, `opn_ndp_table` and other
+  tools on endpoints that answer with a bare JSON array (`diagnostics/interface/getArp`,
+  `getNdp`) failed with an HTTP 500 whose error body carried the whole table, because
+  MCP structured content must be a dict. The API client now normalizes every JSON
+  response at the boundary: bare arrays are wrapped in the `rows`/`rowCount` envelope,
+  dicts pass through unchanged. Contributed by @RyanMelena in #7.
+- `opn_mcp_info` reported `opnsense_version: null` and the default endpoint style when
+  it was the first call after a server start, because version detection only ran
+  lazily on the first API request. It now detects the version itself and reports
+  `version_detection_error` instead of failing when the firewall is unreachable.
+  Contributed by @ShockinglyMoist in #3.
+
 ## [0.4.4] - 2026-09-17
 
 ### Changed
