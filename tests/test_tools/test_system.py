@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import dataclasses
+from unittest.mock import AsyncMock, MagicMock
+
+import httpx
 
 from opnsense_mcp.api_client import OPNsenseAPIError
 from opnsense_mcp.tools.system import (
@@ -14,6 +17,11 @@ from opnsense_mcp.tools.system import (
     opn_scan_config,
     opn_system_status,
 )
+
+
+def _allow_sensitive(api):
+    """Simulate OPNSENSE_ALLOW_SENSITIVE=true on the mocked API client."""
+    api._config = dataclasses.replace(api._config, allow_sensitive=True)
 
 
 class TestOpnSystemStatus:
@@ -66,11 +74,25 @@ class TestOpnListServices:
 class TestOpnGatewayStatus:
     """Tests for opn_gateway_status."""
 
-    async def test_calls_gateway_status(self, mock_api, mock_ctx):
-        mock_api.get = AsyncMock(return_value={"items": []})
+    async def test_bare_list_arrives_as_envelope(self, mock_api, mock_ctx):
+        rows = [{"name": "WAN_GW", "status": "up", "loss": 0, "delay": 5}]
+        payload = {"rows": rows, "rowCount": 1}
+        mock_api.get = AsyncMock(return_value=payload)
         result = await opn_gateway_status(mock_ctx)
         mock_api.get.assert_called_once_with("gateway.status")
+        assert isinstance(result, dict)
+        assert result == payload
+
+    async def test_wrapped_response(self, mock_api, mock_ctx):
+        mock_api.get = AsyncMock(return_value={"items": []})
+        result = await opn_gateway_status(mock_ctx)
         assert result == {"items": []}
+
+    async def test_empty_response(self, mock_api, mock_ctx):
+        mock_api.get = AsyncMock(return_value={"rows": [], "rowCount": 0})
+        result = await opn_gateway_status(mock_ctx)
+        assert isinstance(result, dict)
+        assert result == {"rows": [], "rowCount": 0}
 
 
 class TestOpnDownloadConfig:
@@ -104,6 +126,7 @@ class TestOpnDownloadConfig:
         assert result["size_bytes"] > 0
 
     async def test_downloads_config_without_stripping(self, mock_api, mock_ctx):
+        _allow_sensitive(mock_api)
         mock_api.get_text = AsyncMock(return_value=self._SAMPLE_XML)
 
         result = await opn_download_config(mock_ctx, include_sensitive=True)
@@ -113,14 +136,34 @@ class TestOpnDownloadConfig:
         assert "test-api-key" in result["config_xml"]
         assert "[REDACTED]" not in result["config_xml"]
 
-    async def test_handles_malformed_xml(self, mock_api, mock_ctx):
-        malformed = "<opnsense><unclosed>"
+    async def test_refuses_malformed_xml(self, mock_api, mock_ctx):
+        malformed = "<opnsense><system><password>hunter2</password><unclosed>"
         mock_api.get_text = AsyncMock(return_value=malformed)
 
         result = await opn_download_config(mock_ctx)
 
+        assert result["error_type"] == "unparseable_config"
+        assert "config_xml" not in result
+        assert "hunter2" not in str(result)
+
+    async def test_include_sensitive_refused_without_env_opt_in(self, mock_api, mock_ctx):
+        mock_api.get_text = AsyncMock(return_value=self._SAMPLE_XML)
+
+        result = await opn_download_config(mock_ctx, include_sensitive=True)
+
+        assert result["error_type"] == "sensitive_disabled"
+        assert "config_xml" not in result
+        mock_api.get_text.assert_not_called()
+
+    async def test_include_sensitive_passes_malformed_xml_through(self, mock_api, mock_ctx):
+        _allow_sensitive(mock_api)
+        malformed = "<opnsense><unclosed>"
+        mock_api.get_text = AsyncMock(return_value=malformed)
+
+        result = await opn_download_config(mock_ctx, include_sensitive=True)
+
         assert result["config_xml"] == malformed
-        assert result["stripped"] is True
+        assert result["stripped"] is False
 
     async def test_returns_metadata(self, mock_api, mock_ctx):
         mock_api.get_text = AsyncMock(return_value="<opnsense />")
@@ -263,9 +306,16 @@ class TestOpnGetConfigSection:
         assert result["data"]["password"] == "[REDACTED]"
 
     async def test_include_sensitive(self, mock_api, mock_ctx):
+        _allow_sensitive(mock_api)
         self._setup_mock_api(mock_api)
         result = await opn_get_config_section(mock_ctx, section="system", include_sensitive=True)
         assert result["data"]["password"] == "secret123"
+
+    async def test_include_sensitive_refused_without_env_opt_in(self, mock_api, mock_ctx):
+        self._setup_mock_api(mock_api)
+        result = await opn_get_config_section(mock_ctx, section="system", include_sensitive=True)
+        assert result["error_type"] == "sensitive_disabled"
+        assert "secret123" not in str(result)
 
     async def test_section_not_found(self, mock_api, mock_ctx):
         self._setup_mock_api(mock_api)
@@ -319,10 +369,28 @@ class TestOpnMcpInfo:
         result = await opn_mcp_info(mock_ctx)
         assert result["opnsense_version"] == "25.1"
 
-    async def test_opnsense_version_not_detected(self, mock_api, mock_ctx):
+    async def test_detects_version_on_fresh_server(self, mock_api, mock_ctx):
+        """A fresh server has made no API call yet; mcp_info must not report null."""
         mock_api._detected_version = None
+        firmware = MagicMock(status_code=200)
+        firmware.json.return_value = {"product": {"product_version": "26.7.1"}}
+        mock_api._client.get = AsyncMock(return_value=firmware)
+
         result = await opn_mcp_info(mock_ctx)
+
+        assert result["opnsense_version"] == "26.7"
+        assert result["api_style"] == "snake_case"
+        assert "version_detection_error" not in result
+
+    async def test_reports_detection_failure_instead_of_raising(self, mock_api, mock_ctx):
+        mock_api._detected_version = None
+        mock_api._client.get = AsyncMock(side_effect=httpx.ConnectError("down"))
+
+        result = await opn_mcp_info(mock_ctx)
+
         assert result["opnsense_version"] is None
+        assert "Failed to connect" in result["version_detection_error"]
+        assert result["mcp_version"]
 
     async def test_api_style_camelcase(self, mock_api, mock_ctx):
         result = await opn_mcp_info(mock_ctx)
