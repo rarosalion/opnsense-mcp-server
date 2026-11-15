@@ -6,6 +6,7 @@ endpoint blocklist, and error response parsing.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -471,6 +472,7 @@ class OPNsenseAPI:
         )
         self._detected_version: tuple[int, int] | None = None
         self._use_snake_case: bool = False
+        self._detect_lock = asyncio.Lock()
 
     @property
     def detected_version(self) -> tuple[int, int] | None:
@@ -627,7 +629,13 @@ class OPNsenseAPI:
         """Detect OPNsense version on first call (lazy, cached)."""
         if self._detected_version is not None:
             return
+        async with self._detect_lock:
+            # Another task may have finished detection while this one waited.
+            if self._detected_version is None:
+                await self._detect_version()
 
+    async def _detect_version(self) -> None:
+        """Query firmware status and record the detected version."""
         path = ENDPOINT_REGISTRY["firmware.status"][0]
         self._check_blocklist(path)
 
