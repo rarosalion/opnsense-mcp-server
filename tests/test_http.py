@@ -142,6 +142,24 @@ class TestTools:
                 await client.call_tool("opn_toggle_firewall_rule", {"uuid": "abc"})
         assert all(r.method == "GET" for r in upstream.requests)
 
+    async def test_sensitive_disabled_in_http(self, srv, upstream):
+        async with srv.client() as client:
+            blocked = await client.call_tool("opn_download_config", {"include_sensitive": True})
+            assert "include_sensitive is disabled" in blocked.data["error"]
+            assert not any(p.endswith("core/backup/download/this") for p in upstream.paths)
+
+            section = await client.call_tool("opn_get_config_section", {"section": "system", "include_sensitive": True})
+            assert "include_sensitive is disabled" in section.data["error"]
+
+            redacted = await client.call_tool("opn_download_config", {})
+        assert "[REDACTED]" in redacted.data["config_xml"]
+        assert "abc" not in redacted.data["config_xml"]
+
+    async def test_mcp_info_reports_transport(self, srv):
+        async with srv.client() as client:
+            info = await client.call_tool("opn_mcp_info", {})
+        assert info.data["transport"] == "streamable-http"
+
 
 class TestAuth:
     async def test_auth_required_when_token_set(self, srv_auth):
