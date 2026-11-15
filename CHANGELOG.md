@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-15
+
+### Added
+
+- Opt-in streamable-HTTP transport, selected with `OPNSENSE_MCP_TRANSPORT=streamable-http` and configured with `OPNSENSE_MCP_HOST` (default `127.0.0.1`), `OPNSENSE_MCP_PORT` (default `8000`) and `OPNSENSE_MCP_PATH` (default `/mcp`). STDIO stays the default and its behaviour is unchanged: no other `OPNSENSE_MCP_*` variable is read when STDIO is selected. HTTP mode is stateless and replies with plain JSON. Invalid settings exit with status 2 and a `configuration error` message.
+- `GET /healthz` (liveness) and `GET /readyz` (readiness) probe endpoints in HTTP mode. Neither calls the router.
+- Optional shared bearer token for HTTP mode (`OPNSENSE_MCP_AUTH_TOKEN`, at least 32 characters, compared in constant time and never logged). The probe endpoints stay unauthenticated.
+- `OPNSENSE_MCP_ALLOW_HTTP_WRITES`, a second opt-in required before `OPNSENSE_ALLOW_WRITES=true` is accepted in HTTP mode, because one process shares a single savepoint/rollback state between all clients.
+- `OPNSENSE_MCP_ALLOW_SENSITIVE` (default `false`): in HTTP mode `include_sensitive=True` on `opn_download_config` and `opn_get_config_section` is refused unless enabled. STDIO is unaffected.
+- `OPNSENSE_MCP_CONFIG_CACHE_TTL` (default `300` seconds, `0` = never): config scan cache expiry in HTTP mode.
+- `opn_mcp_info` reports the active `transport`.
+
+### Changed
+
+- The Docker image now runs as the non-root user `10001:10001` and declares `EXPOSE 8000`. `docker run -i` STDIO launchers are unaffected.
+- `fastmcp` is pinned to `>=4.2,<5` and `httpx` to `>=0.27,<1`.
+- Version detection and the config scan cache now use locks, so concurrent clients share one detection call and one config download.
+
+### Fixed
+
+- `__version__` (shown by `opn_mcp_info` and reported as the MCP server version) said `0.4.1` while the package was `0.4.4`. A test now keeps it equal to the `pyproject.toml` version.
+
 ## [0.4.4] - 2026-09-17
 
 ### Changed
