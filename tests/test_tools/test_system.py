@@ -331,8 +331,38 @@ class TestOpnGetConfigSection:
         mock_api.get_text.assert_called()
 
 
+class TestSensitiveGuard:
+    """include_sensitive=True is refused when the server disallows it."""
+
+    async def test_download_blocked_when_disallowed(self, mock_api, mock_ctx):
+        mock_ctx.lifespan_context["allow_sensitive"] = False
+        mock_api.get_text = AsyncMock(return_value="<opnsense/>")
+        result = await opn_download_config(mock_ctx, include_sensitive=True)
+        assert "include_sensitive is disabled" in result["error"]
+        mock_api.get_text.assert_not_called()
+
+    async def test_download_redacted_still_works_when_disallowed(self, mock_api, mock_ctx):
+        mock_ctx.lifespan_context["allow_sensitive"] = False
+        mock_api.get_text = AsyncMock(return_value="<opnsense><key>abc</key></opnsense>")
+        result = await opn_download_config(mock_ctx)
+        assert result["stripped"] is True
+        assert "abc" not in result["config_xml"]
+
+    async def test_section_blocked_when_disallowed(self, mock_api, mock_ctx):
+        mock_ctx.lifespan_context["allow_sensitive"] = False
+        mock_api.get_text = AsyncMock(return_value="<opnsense/>")
+        result = await opn_get_config_section(mock_ctx, section="system", include_sensitive=True)
+        assert "include_sensitive is disabled" in result["error"]
+        mock_api.get_text.assert_not_called()
+
+
 class TestOpnMcpInfo:
     """Tests for opn_mcp_info."""
+
+    async def test_mcp_info_reports_transport(self, mock_api, mock_ctx):
+        assert (await opn_mcp_info(mock_ctx))["transport"] == "stdio"
+        mock_ctx.lifespan_context["transport"] = "streamable-http"
+        assert (await opn_mcp_info(mock_ctx))["transport"] == "streamable-http"
 
     async def test_returns_expected_keys(self, mock_api, mock_ctx):
         result = await opn_mcp_info(mock_ctx)

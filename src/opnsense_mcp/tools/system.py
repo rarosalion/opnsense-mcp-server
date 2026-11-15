@@ -10,7 +10,12 @@ from fastmcp import Context
 from opnsense_mcp import __version__
 from opnsense_mcp.api_client import OPNsenseAPIError
 from opnsense_mcp.config_cache import is_sensitive_tag
-from opnsense_mcp.server import get_api, get_config_cache, get_savepoint_manager, mcp
+from opnsense_mcp.server import get_allow_sensitive, get_api, get_config_cache, get_savepoint_manager, mcp
+
+
+def _sensitive_disabled_error() -> dict[str, Any]:
+    """Error returned when include_sensitive=True is requested over HTTP but not permitted."""
+    return {"error": "include_sensitive is disabled on this server (OPNSENSE_MCP_ALLOW_SENSITIVE=false)"}
 
 _SENSITIVE_GATE_ERROR = {
     "error": (
@@ -104,10 +109,13 @@ async def opn_download_config(
     By default, sensitive data (passwords, keys, secrets) is redacted; a config
     that cannot be parsed for redaction is refused, never returned raw.
     include_sensitive=true additionally requires OPNSENSE_ALLOW_SENSITIVE=true
-    in the server environment — without it, the call is refused.
+    in the server environment, and over the HTTP transport also
+    OPNSENSE_MCP_ALLOW_SENSITIVE=true; without them the call is refused.
     Returns: dict with 'config_xml' (str), 'stripped' (bool), 'size_bytes' (int),
     or 'error'/'error_type' when the config cannot be parsed.
     """
+    if include_sensitive and not get_allow_sensitive(ctx):
+        return _sensitive_disabled_error()
     api = get_api(ctx)
     if include_sensitive and not api._config.allow_sensitive:
         return dict(_SENSITIVE_GATE_ERROR)
@@ -136,8 +144,9 @@ async def opn_scan_config(ctx: Context, force: bool = False) -> dict[str, Any]:
 
     Use this FIRST when starting a new session. Downloads the full config,
     parses it into queryable sections, and detects runtime state (services,
-    DHCP backend, DNS servers). Results are cached for the session — subsequent
-    calls return the cached version unless force=True.
+    DHCP backend, DNS servers). Results are cached by the server process (in HTTP
+    mode shared by all clients and refreshed after OPNSENSE_MCP_CONFIG_CACHE_TTL
+    seconds) — subsequent calls return the cached version unless force=True.
 
     Call with force=True to rescan after manual config changes on the firewall.
     Use opn_get_config_section(section) to drill into specific sections.
@@ -170,16 +179,20 @@ async def opn_get_config_section(
     firewall rules that are NOT visible via opn_list_firewall_rules.
 
     Sensitive values are redacted by default; include_sensitive=true requires
-    OPNSENSE_ALLOW_SENSITIVE=true in the server environment.
+    OPNSENSE_ALLOW_SENSITIVE=true in the server environment, and over the HTTP
+    transport also OPNSENSE_MCP_ALLOW_SENSITIVE=true.
+
     Returns: dict with 'section' name and 'data' (structured config data).
     """
+    if include_sensitive and not get_allow_sensitive(ctx):
+        return _sensitive_disabled_error()
     api = get_api(ctx)
     if include_sensitive and not api._config.allow_sensitive:
         return dict(_SENSITIVE_GATE_ERROR)
 
     cache = get_config_cache(ctx)
 
-    if not cache.is_loaded or cache.is_stale:
+    if not cache.is_loaded or cache.is_stale or cache.is_expired:
         await cache.load(api)
 
     result = cache.get_section(section, include_sensitive=include_sensitive)
@@ -196,13 +209,13 @@ async def opn_mcp_info(ctx: Context) -> dict[str, Any]:
     """Get MCP server version and runtime configuration.
 
     Use this to check the MCP server version, whether write mode is enabled,
-    the detected OPNsense API version, and whether firewall writes still get
-    savepoint/rollback protection. Version detection runs here if no earlier
-    call triggered it; if the firewall is unreachable, the failure is reported
-    instead of raised.
-    Returns: dict with 'mcp_version', 'write_mode', 'opnsense_version',
-    'api_style', 'savepoint_support' and, only when detection failed,
-    'version_detection_error'. 'savepoint_support' is true when the
+    the detected OPNsense API version, which transport the server is using, and
+    whether firewall writes still get savepoint/rollback protection. Version
+    detection runs here if no earlier call triggered it; if the firewall is
+    unreachable, the failure is reported instead of raised.
+    Returns: dict with 'mcp_version', 'write_mode', 'transport' ('stdio' or
+    'streamable-http'), 'opnsense_version', 'api_style', 'savepoint_support' and,
+    only when detection failed, 'version_detection_error'. 'savepoint_support' is true when the
     60-second auto-revert is available, false when OPNsense no longer offers it
     (26.7+ removed it upstream, so firewall changes are immediate and permanent),
     and null when no firewall write has probed for it yet.
@@ -219,6 +232,7 @@ async def opn_mcp_info(ctx: Context) -> dict[str, Any]:
     result: dict[str, Any] = {
         "mcp_version": __version__,
         "write_mode": api._config.allow_writes,
+        "transport": ctx.lifespan_context.get("transport", "stdio"),
         "opnsense_version": f"{version[0]}.{version[1]}" if version else None,
         "api_style": "snake_case" if api._use_snake_case else "camelCase",
         "savepoint_support": get_savepoint_manager(ctx).supported,

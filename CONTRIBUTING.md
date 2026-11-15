@@ -91,7 +91,8 @@ These are non-negotiable for all contributions:
 - Load credentials from environment variables only
 - Guard write operations with the `OPNSENSE_ALLOW_WRITES` check
 - Route all firewall modifications through the savepoint manager — it uses savepoint/rollback where OPNsense provides it (< 26.7) and degrades to direct apply on 26.7+
-- Keep transport as STDIO only — never expose HTTP/SSE endpoints
+- Keep STDIO the default transport — the optional streamable-HTTP mode must stay opt-in via `OPNSENSE_MCP_TRANSPORT`, bind to loopback by default, and never expose SSE endpoints
+- Make any new process-wide state safe for concurrent clients in HTTP mode (one process serves many clients, so use locks and avoid per-user assumptions)
 - Validate user-provided inputs (hostnames, IP addresses) against injection
 
 ### Blocked Endpoints

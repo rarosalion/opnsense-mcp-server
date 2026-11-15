@@ -17,8 +17,11 @@ This MCP server is designed with security as the primary concern:
 - **Savepoint/rollback (OPNsense < 26.7 only)** — where OPNsense still offers the savepoint API, firewall modifications use its built-in 60-second auto-revert; changes must be explicitly confirmed or they roll back automatically. OPNsense 26.7 removed that API upstream — the server detects the missing endpoint at runtime and applies firewall changes immediately, with no automatic rollback
 - **Endpoint blocklist** — dangerous endpoints (`halt`, `reboot`, `poweroff`, `firmware update/upgrade`) are hard-blocked at the API client level and can never be called
 - **API-only** — no SSH access, no command execution, no direct config file manipulation
-- **Local transport** — STDIO only, no network-exposed HTTP/SSE endpoints
-- **No credential exposure** — API keys are never included in tool output, logs, or error messages
+- **Local transport by default** — the server speaks STDIO unless `OPNSENSE_MCP_TRANSPORT=streamable-http` is set. STDIO mode opens no network port.
+- **Optional HTTP mode has no user authentication** — in streamable-HTTP mode the server listens on `127.0.0.1` unless `OPNSENSE_MCP_HOST` says otherwise. It does not know who is calling: anyone who can reach the port can call every tool with the server's OPNsense API key. Protect it with the network (loopback, a firewall, or a Kubernetes NetworkPolicy that your CNI actually enforces) and set `OPNSENSE_MCP_AUTH_TOKEN` so callers must present a shared bearer token. The token is a single shared secret, not per-user identity; there is no TLS, so keep it on a trusted network or behind a TLS-terminating gateway.
+- **Writes over HTTP need a second opt-in** — with HTTP transport, `OPNSENSE_ALLOW_WRITES=true` is refused unless `OPNSENSE_MCP_ALLOW_HTTP_WRITES=true` is also set (and, on a non-loopback address, `OPNSENSE_MCP_AUTH_TOKEN`), because one process shares a single savepoint/rollback state between every client.
+- **Unredacted config is off over HTTP** — `include_sensitive=True` is refused in HTTP mode unless `OPNSENSE_MCP_ALLOW_SENSITIVE=true`.
+- **No credential exposure** — API keys are never included in tool output, logs, or error messages, including the HTTP bearer token
 - **Input validation** — hostname parameters are validated against shell metacharacter injection
 - **Sensitive data stripping** — config backup strips passwords and keys by default
 
@@ -126,6 +129,30 @@ Add to your Cursor MCP settings (Settings > MCP):
 }
 ```
 
+### HTTP mode (streamable HTTP)
+
+For a shared, long-running deployment (for example behind an MCP gateway) the server can serve MCP over streamable HTTP instead of STDIO. It is opt-in and disabled by default:
+
+```bash
+docker run --rm -p 127.0.0.1:8000:8000 \
+  -e OPNSENSE_MCP_TRANSPORT=streamable-http \
+  -e OPNSENSE_MCP_HOST=0.0.0.0 \
+  -e OPNSENSE_MCP_AUTH_TOKEN=a-shared-secret-of-at-least-32-characters \
+  -e OPNSENSE_URL=https://192.168.1.1/api \
+  -e OPNSENSE_API_KEY=your-api-key-here \
+  -e OPNSENSE_API_SECRET=your-api-secret-here \
+  -e OPNSENSE_VERIFY_SSL=false \
+  ghcr.io/rarosalion/opnsense-mcp-server
+```
+
+`OPNSENSE_MCP_HOST=0.0.0.0` makes the server reachable from outside the container, and the `127.0.0.1:` prefix on `-p` keeps it reachable from the Docker host only. Without a token the server prints a warning when it binds a non-loopback address.
+
+- The MCP endpoint is `http://HOST:8000/mcp` (no trailing slash). Clients must send `Authorization: Bearer TOKEN` when a token is configured.
+- `GET /healthz` is a liveness probe and `GET /readyz` a readiness probe. Both are unauthenticated, reveal nothing sensitive and never call the router, so readiness does not depend on OPNsense being reachable.
+- Sessions are stateless and replies are plain JSON, so the server can restart without clients noticing.
+- The config scan cache is shared by all clients and expires after `OPNSENSE_MCP_CONFIG_CACHE_TTL` seconds.
+- All clients share one OPNsense API key and see the same tools. See the Security Model above before exposing it.
+
 ## Configuration
 
 | Environment Variable | Default | Description |
@@ -136,6 +163,16 @@ Add to your Cursor MCP settings (Settings > MCP):
 | `OPNSENSE_VERIFY_SSL` | `true` | Verify SSL certificate (`false` for self-signed certs) |
 | `OPNSENSE_ALLOW_WRITES` | `false` | Enable write operations (firewall rules, service control) |
 | `OPNSENSE_ALLOW_SENSITIVE` | `false` | Permit `include_sensitive=true` on the config tools; without it, passwords and keys are always redacted |
+| `OPNSENSE_MCP_TRANSPORT` | `stdio` | Transport selection: `stdio` or `streamable-http` |
+| `OPNSENSE_MCP_HOST` | `127.0.0.1` | HTTP bind address (loopback by default; HTTP mode only) |
+| `OPNSENSE_MCP_PORT` | `8000` | HTTP port, 1-65535 (HTTP mode only) |
+| `OPNSENSE_MCP_PATH` | `/mcp` | MCP endpoint path (HTTP mode only) |
+| `OPNSENSE_MCP_AUTH_TOKEN` | *(unset)* | Optional shared bearer token, at least 32 characters (HTTP mode only) |
+| `OPNSENSE_MCP_ALLOW_HTTP_WRITES` | `false` | Second opt-in required to combine `OPNSENSE_ALLOW_WRITES=true` with HTTP mode |
+| `OPNSENSE_MCP_ALLOW_SENSITIVE` | `false` | Allow `include_sensitive=True` over HTTP (STDIO always allows it) |
+| `OPNSENSE_MCP_CONFIG_CACHE_TTL` | `300` | Seconds before the cached config scan expires in HTTP mode, `0` = never (STDIO never expires it) |
+
+The `OPNSENSE_MCP_*` variables only matter when `OPNSENSE_MCP_TRANSPORT=streamable-http`; with STDIO they are ignored and not validated.
 
 **Custom ports:** If your OPNsense web GUI runs on a non-standard port (e.g., 10443), include it in the URL: `https://192.168.1.1:10443/api`
 
@@ -149,9 +186,9 @@ Add to your Cursor MCP settings (Settings > MCP):
 | `opn_list_services` | List all services and their running status. Params: `search`, `limit` |
 | `opn_gateway_status` | Gateway availability, latency, and dpinger health checks |
 | `opn_download_config` | Download `config.xml` backup with optional sensitive data stripping. Params: `include_sensitive` (default: `false` — passwords and keys are redacted) |
-| `opn_scan_config` | Scan the full configuration, parse it into sections, and collect runtime inventory (firmware, plugins, DHCP, DNS, interfaces, services). Results are cached per session. Params: `force` |
+| `opn_scan_config` | Scan the full configuration, parse it into sections, and collect runtime inventory (firmware, plugins, DHCP, DNS, interfaces, services). Results are cached by the server process (in HTTP mode shared by all clients and refreshed after `OPNSENSE_MCP_CONFIG_CACHE_TTL` seconds). Params: `force` |
 | `opn_get_config_section` | Get a specific config section as structured JSON. Params: `section`, `include_sensitive` |
-| `opn_mcp_info` | MCP server version, write mode status, detected OPNsense version, API style, and whether firewall writes still get savepoint/rollback protection |
+| `opn_mcp_info` | MCP server version, write mode status, transport (`stdio` or `streamable-http`), detected OPNsense version, API style, and whether firewall writes still get savepoint/rollback protection |
 
 ### Network (5 tools)
 

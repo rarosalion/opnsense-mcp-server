@@ -1,7 +1,8 @@
-"""Session-scoped config cache with XML→dict parsing and runtime inventory."""
+"""Process-scoped config cache with XML→dict parsing and runtime inventory."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import xml.etree.ElementTree as ET
@@ -269,9 +270,15 @@ async def _get_interfaces(api: OPNsenseAPI) -> list[dict[str, Any]]:
 
 
 class ConfigCache:
-    """Session-scoped cache for parsed OPNsense config.xml and runtime inventory."""
+    """Process-scoped cache for parsed OPNsense config.xml and runtime inventory.
 
-    def __init__(self) -> None:
+    With ``ttl_seconds`` set, the cache counts as expired that many seconds after the last load.
+    ``None`` or ``0`` means it never expires on its own (only writes or ``force`` refresh it).
+    """
+
+    def __init__(self, ttl_seconds: int | None = None) -> None:
+        self._ttl_seconds = ttl_seconds
+        self._load_lock = asyncio.Lock()
         self._sections: dict[str, dict[str, Any] | list[Any] | str] = {}
         self._section_sizes: dict[str, int] = {}
         self._inventory: dict[str, Any] = {}
@@ -282,6 +289,13 @@ class ConfigCache:
     def is_loaded(self) -> bool:
         """True if config has been downloaded and parsed at least once."""
         return self._loaded_at > 0
+
+    @property
+    def is_expired(self) -> bool:
+        """True if a TTL is configured and the cache is older than it."""
+        if not self._ttl_seconds or not self.is_loaded:
+            return False
+        return time.time() - self._loaded_at > self._ttl_seconds
 
     @property
     def is_stale(self) -> bool:
@@ -309,11 +323,23 @@ class ConfigCache:
         """Download config.xml, parse sections, collect runtime inventory.
 
         Returns a summary dict suitable for tool output.
-        Skips re-download if already loaded and not stale/forced.
+        Skips re-download if already loaded and not stale, expired or forced. Concurrent
+        callers share one download.
         """
-        if self.is_loaded and not self._stale and not force:
+        if self._is_fresh() and not force:
             return self.summary()
+        async with self._load_lock:
+            # A concurrent caller may have reloaded while this one waited for the lock.
+            if self._is_fresh() and not force:
+                return self.summary()
+            return await self._load(api)
 
+    def _is_fresh(self) -> bool:
+        """True if the cache is loaded and neither stale nor expired."""
+        return self.is_loaded and not self._stale and not self.is_expired
+
+    async def _load(self, api: OPNsenseAPI) -> dict[str, Any]:
+        """Download and parse everything; callers must hold the load lock."""
         # --- Parse config.xml into sections ---
         xml_text = await api.get_text("core.backup.download")
         self._parse_xml(xml_text)

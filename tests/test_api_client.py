@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -183,6 +184,17 @@ class TestVersionDetection:
         api = _make_api(mock_config, mock_httpx_client, firmware)
         with pytest.raises(OPNsenseAPIError, match="Failed to parse"):
             await api._ensure_version_detected()
+
+    async def test_version_detection_runs_once_under_concurrency(self, mock_config, mock_httpx_client):
+        async def slow_get(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            return _make_response(json_data={"product_version": "25.1.2"})
+
+        mock_httpx_client.get = AsyncMock(side_effect=slow_get)
+        api = _make_api(mock_config, mock_httpx_client)
+        await asyncio.gather(*[api._ensure_version_detected() for _ in range(5)])
+        assert mock_httpx_client.get.call_count == 1
+        assert api._detected_version == (25, 1)
 
 
 # --- HTTP Method Tests ---
