@@ -162,6 +162,7 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 | `OPNSENSE_API_SECRET` | *(required)* | API secret from OPNsense user settings |
 | `OPNSENSE_VERIFY_SSL` | `true` | Verify SSL certificate (`false` for self-signed certs) |
 | `OPNSENSE_ALLOW_WRITES` | `false` | Enable write operations (firewall rules, service control) |
+| `OPNSENSE_ALLOW_SENSITIVE` | `false` | Permit `include_sensitive=true` on the config tools; without it, passwords and keys are always redacted |
 | `OPNSENSE_MCP_TRANSPORT` | `stdio` | Transport selection: `stdio` or `streamable-http` |
 | `OPNSENSE_MCP_HOST` | `127.0.0.1` | HTTP bind address (loopback by default; HTTP mode only) |
 | `OPNSENSE_MCP_PORT` | `8000` | HTTP port, 1-65535 (HTTP mode only) |
@@ -429,7 +430,7 @@ The server automatically detects the OPNsense version on first connection and se
 
 #### `opn_download_config` shows `[REDACTED]` values
 
-- This is the default behavior for security. Pass `include_sensitive=true` to include passwords and keys (use with caution in AI conversations)
+- This is the default behavior for security. To include passwords and keys, set `OPNSENSE_ALLOW_SENSITIVE=true` in the server environment and pass `include_sensitive=true` (use with caution in AI conversations)
 
 #### Write operations fail with "writes not enabled"
 

@@ -6,6 +6,9 @@ Environment variables:
     OPNSENSE_API_SECRET: API secret (required)
     OPNSENSE_VERIFY_SSL: Verify SSL certificate (default: true)
     OPNSENSE_ALLOW_WRITES: Enable write operations (default: false)
+    OPNSENSE_ALLOW_SENSITIVE: Permit include_sensitive=true on config
+        tools (default: false). Without this, passwords/keys are always
+        redacted regardless of tool parameters.
 
 Transport variables (only read when OPNSENSE_MCP_TRANSPORT=streamable-http):
     OPNSENSE_MCP_TRANSPORT: stdio or streamable-http (default: stdio)
@@ -43,6 +46,7 @@ class OPNsenseConfig:
     api_secret: str
     verify_ssl: bool
     allow_writes: bool
+    allow_sensitive: bool = False
 
     def __repr__(self) -> str:
         return f"OPNsenseConfig(url={self.url!r}, verify_ssl={self.verify_ssl}, allow_writes={self.allow_writes})"
@@ -93,12 +97,16 @@ def load_config() -> OPNsenseConfig:
     allow_writes_raw = os.environ.get("OPNSENSE_ALLOW_WRITES", "false").strip()
     allow_writes = _parse_bool(allow_writes_raw, "OPNSENSE_ALLOW_WRITES")
 
+    allow_sensitive_raw = os.environ.get("OPNSENSE_ALLOW_SENSITIVE", "false").strip()
+    allow_sensitive = _parse_bool(allow_sensitive_raw, "OPNSENSE_ALLOW_SENSITIVE")
+
     return OPNsenseConfig(
         url=url,
         api_key=api_key,
         api_secret=api_secret,
         verify_ssl=verify_ssl,
         allow_writes=allow_writes,
+        allow_sensitive=allow_sensitive,
     )
 
 
