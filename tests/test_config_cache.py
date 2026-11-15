@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 from opnsense_mcp.config_cache import ConfigCache, _strip_sensitive, _xml_to_dict
 
@@ -226,6 +227,51 @@ class TestConfigCache:
 
         await cache.load(api, force=True)
         assert api.get_text.call_count == first_call_count + 1
+
+    async def test_ttl_expiry_triggers_reload(self):
+        cache = ConfigCache(ttl_seconds=60)
+        api = self._make_mock_api()
+        with patch("opnsense_mcp.config_cache.time.time", return_value=1000.0):
+            await cache.load(api)
+            assert cache.is_expired is False
+        with patch("opnsense_mcp.config_cache.time.time", return_value=1050.0):
+            await cache.load(api)
+            assert api.get_text.call_count == 1
+        with patch("opnsense_mcp.config_cache.time.time", return_value=1061.0):
+            assert cache.is_expired is True
+            await cache.load(api)
+            assert api.get_text.call_count == 2
+
+    async def test_ttl_none_never_expires(self):
+        cache = ConfigCache()
+        api = self._make_mock_api()
+        with patch("opnsense_mcp.config_cache.time.time", return_value=1000.0):
+            await cache.load(api)
+        with patch("opnsense_mcp.config_cache.time.time", return_value=10_000_000.0):
+            assert cache.is_expired is False
+            await cache.load(api)
+        assert api.get_text.call_count == 1
+
+    async def test_ttl_zero_never_expires(self):
+        cache = ConfigCache(ttl_seconds=0)
+        api = self._make_mock_api()
+        with patch("opnsense_mcp.config_cache.time.time", return_value=1000.0):
+            await cache.load(api)
+        with patch("opnsense_mcp.config_cache.time.time", return_value=10_000_000.0):
+            assert cache.is_expired is False
+
+    async def test_concurrent_load_downloads_once(self):
+        cache = ConfigCache()
+        api = self._make_mock_api()
+        original = api.get_text
+
+        async def slow_get_text(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            return await original(*args, **kwargs)
+
+        api.get_text = AsyncMock(side_effect=slow_get_text)
+        await asyncio.gather(*[cache.load(api) for _ in range(5)])
+        assert api.get_text.call_count == 1
 
     async def test_summary_contains_inventory(self):
         cache = ConfigCache()
